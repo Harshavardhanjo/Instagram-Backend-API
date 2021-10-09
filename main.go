@@ -7,11 +7,11 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/joho/godotenv"
 
-	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -43,6 +43,11 @@ type Post struct {
 	URL       string             `json:"url,omitempty" bson:"url,omitempty"`
 	Timestamp string             `json:"Timestamp,omitempty" bson:"Timestamp,omitempty"`
 	UserId    string             `json:"userid,omitempty" bson:"userid,omitempty"`
+}
+
+type LastId struct {
+	Lastid     string `json:"lastid,omitempty" bson:"lastid,omitempty"`
+	PagedPosts []Post `json:"pagedposts,omitempty" bson:"pagedposts,omitempty"`
 }
 
 func Encrypt(key, data []byte) ([]byte, error) {
@@ -120,8 +125,10 @@ func CreateUserEndpoint(response http.ResponseWriter, request *http.Request) {
 
 func GetUserEndpoint(response http.ResponseWriter, request *http.Request) {
 	response.Header().Set("content-type", "application/json")
-	params := mux.Vars(request)
-	id, _ := primitive.ObjectIDFromHex(params["id"])
+	// params := mux.Vars(request)
+	// id, _ := primitive.ObjectIDFromHex(params["id"])
+	id_p := request.URL.Query().Get("id")
+	id, _ := primitive.ObjectIDFromHex(id_p)
 	var user User
 	collection := client.Database("Insta").Collection("User")
 	ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
@@ -136,8 +143,15 @@ func GetUserEndpoint(response http.ResponseWriter, request *http.Request) {
 
 func GetPostEndpoint(response http.ResponseWriter, request *http.Request) {
 	response.Header().Set("content-type", "application/json")
-	params := mux.Vars(request)
-	id, _ := primitive.ObjectIDFromHex(params["id"])
+	// params := mux.Vars(request)
+	// id, _ := primitive.ObjectIDFromHex(params["id"])
+	id_p := request.URL.Query().Get("id")
+	id, _ := primitive.ObjectIDFromHex(id_p)
+	if id.IsZero() {
+		response.WriteHeader(http.StatusInternalServerError)
+		response.Write([]byte(`post not found`))
+		return
+	}
 	var post Post
 	collection := client.Database("Insta").Collection("Post")
 	ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
@@ -152,31 +166,42 @@ func GetPostEndpoint(response http.ResponseWriter, request *http.Request) {
 
 func GetPostsEndpoint(response http.ResponseWriter, request *http.Request) {
 	response.Header().Set("content-type", "application/json")
-	params := mux.Vars(request)
-	id, _ := params["userid"]
+	// params := mux.Vars(request)
+	// id, _ := params["userid"]
+	id := request.URL.Query().Get("id")
+	limit_p := request.URL.Query().Get("limit")
+	limit, _ := strconv.Atoi(limit_p)
+	i := 0
 	var posts []Post
+
 	collection := client.Database("Insta").Collection("Post")
 	ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
 	cursor, err := collection.Find(ctx, bson.M{})
+	var lastid string
 	if err != nil {
 		response.WriteHeader(http.StatusInternalServerError)
 		response.Write([]byte(`{ "message": "` + err.Error() + `" }`))
 		return
 	}
 	defer cursor.Close(ctx)
-	for cursor.Next(ctx) {
+	for cursor.Next(ctx) && i < limit {
 		var post Post
 		cursor.Decode(&post)
 		if post.UserId == id {
 			posts = append(posts, post)
+			lastid = post.ID.String()
 		}
+		i += 1
 	}
 	if err := cursor.Err(); err != nil {
 		response.WriteHeader(http.StatusInternalServerError)
 		response.Write([]byte(`{ "message": "` + err.Error() + `" }`))
 		return
 	}
-	json.NewEncoder(response).Encode(posts)
+
+	lastobj := LastId{PagedPosts: posts, Lastid: lastid}
+	ret, err := json.Marshal(lastobj)
+	fmt.Fprintf(response, string(ret))
 }
 
 func CreatePostEndpoint(response http.ResponseWriter, request *http.Request) {
@@ -195,11 +220,10 @@ func main() {
 	godotenv.Load(".env")
 	clientOptions := options.Client().ApplyURI(os.Getenv("link"))
 	client, _ = mongo.Connect(ctx, clientOptions)
-	router := mux.NewRouter()
-	router.HandleFunc("/users", CreateUserEndpoint).Methods("POST")
-	router.HandleFunc("/posts", CreatePostEndpoint).Methods("POST")
-	router.HandleFunc("/user/{id}", GetUserEndpoint).Methods("GET")
-	router.HandleFunc("/posts/{id}", GetPostEndpoint).Methods("GET")
-	router.HandleFunc("/posts/users/{userid}", GetPostsEndpoint).Methods("GET")
-	http.ListenAndServe(":12345", router)
+	http.HandleFunc("/users/", GetUserEndpoint)
+	http.HandleFunc("/users", CreateUserEndpoint)
+	http.HandleFunc("/posts", CreatePostEndpoint)
+	http.HandleFunc("/posts/", GetPostEndpoint)
+	http.HandleFunc("/posts/users/", GetPostsEndpoint)
+	log.Fatal(http.ListenAndServe(":12345", nil))
 }
