@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"time"
+
+	"github.com/joho/godotenv"
 
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson"
@@ -147,22 +150,6 @@ func GetPostEndpoint(response http.ResponseWriter, request *http.Request) {
 	json.NewEncoder(response).Encode(post)
 }
 
-// func GetPostsEndpoint(response http.ResponseWriter, request *http.Request) {
-// 	response.Header().Set("content-type", "application/json")
-// 	params := mux.Vars(request)
-// 	id, _ := params["id"]
-// 	var posts []Post
-// 	collection := client.Database("Insta").Collection("Post")
-// 	ctx, _ := context.WithTimeout(context.Background(), 30*time.Second)
-// 	err := collection.Find(ctx, bson.M{"UserId" : id}).Decode(&post)
-// 	if err != nil {
-// 		response.WriteHeader(http.StatusInternalServerError)
-// 		response.Write([]byte(`{ "message": "` + err.Error() + `" }`))
-// 		return
-// 	}
-// 	json.NewEncoder(response).Encode(post)
-// }
-
 func GetPostsEndpoint(response http.ResponseWriter, request *http.Request) {
 	response.Header().Set("content-type", "application/json")
 	params := mux.Vars(request)
@@ -205,7 +192,8 @@ func CreatePostEndpoint(response http.ResponseWriter, request *http.Request) {
 func main() {
 	fmt.Println("Starting the application...")
 	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
-	clientOptions := options.Client().ApplyURI("mongodb+srv://Harsha:sathyajothi@cluster0.igo6i.mongodb.net/myFirstDatabase?retryWrites=true&w=majority")
+	godotenv.Load(".env")
+	clientOptions := options.Client().ApplyURI(os.Getenv("link"))
 	client, _ = mongo.Connect(ctx, clientOptions)
 	router := mux.NewRouter()
 	router.HandleFunc("/users", CreateUserEndpoint).Methods("POST")
